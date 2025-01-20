@@ -5,17 +5,25 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY as string);
 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
-export async function POST(req: Request) {
+interface ErrorResponse {
+    error: string;
+}
+
+interface GeminiErrorResponse {
+    response?: {
+        status?: number;
+    };
+    message: string;
+}
+
+export async function POST(req: Request): Promise<NextResponse<ErrorResponse | { message: string }>> {
     try {
         const body = await req.json();
 
         // Input Validation
-        if (!body || !body.message) {
+        if (!body || typeof body !== 'object' || !('message' in body)) {
             return NextResponse.json(
-                {
-                    error:
-                        "Missing or invalid request body. Must include a 'message' field.",
-                },
+                { error: "Missing or invalid request body. Must include a 'message' field." },
                 { status: 400 }
             );
         }
@@ -34,23 +42,46 @@ export async function POST(req: Request) {
         // Send the user's message to the model
         const result = await chat.sendMessage(message);
         const response = result.response;
+
         // Extract the response
         const aiMessage = response.text();
 
         // Return the response
         return NextResponse.json({ message: aiMessage });
-    } catch (error: any) {
+    } catch (error) {
         console.error("Error processing request:", error);
 
         let errorMessage = "An unexpected error occurred.";
+        let statusCode = 500;
 
-        if (error instanceof Error && error.message.includes("429")) {
-            errorMessage =
-                "Too many requests. Please wait a while before trying again.";
-        } else if (error?.response?.status) {
-            errorMessage = `API Error: ${error.message} (Status: ${error?.response?.status})`;
+        // Check if the error is an instance of Error
+        if (error instanceof Error) {
+            errorMessage = error.message;
+
+            // Handle rate-limiting errors
+            if (error.message.includes("429")) {
+                errorMessage = "Too many requests. Please wait a while before trying again.";
+                statusCode = 429;
+            }
         }
 
-        return NextResponse.json({ error: errorMessage }, { status: 500 });
+        // Check if the error is a GeminiErrorResponse
+        if (isGeminiErrorResponse(error)) {
+            const geminiError = error as GeminiErrorResponse;
+            errorMessage = `API Error: ${geminiError.message} (Status: ${geminiError.response?.status || 'Unknown'})`;
+            statusCode = geminiError.response?.status || 500;
+        }
+
+        return NextResponse.json({ error: errorMessage }, { status: statusCode });
     }
+}
+
+// Helper function to check if the error is a GeminiErrorResponse
+function isGeminiErrorResponse(error: unknown): error is GeminiErrorResponse {
+    return (
+        typeof error === 'object' &&
+        error !== null &&
+        'message' in error &&
+        typeof error.message === 'string'
+    );
 }
