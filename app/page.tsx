@@ -1,96 +1,177 @@
-'use client';
-import { useState } from 'react';
-import Message from './components/Message';
+"use client"
 
-// Define types for messages and API response
-type MessageType = { sender: 'user' | 'bot'; text: string };
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import Message from './components/Message';
+import TypingIndicator from './components/TypingIndicator';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Toaster } from "@/components/ui/toaster"; // Import `toast` directly
+import { Toast } from "@/components/ui/toast"; // Import `useToast` directly
+import { motion, AnimatePresence } from "framer-motion";
+
+type MessageType = {
+  sender: 'user' | 'bot';
+  text: string;
+  timestamp: Date;
+};
+
 type ApiResponse = { message: string } | { error: string };
 
 export default function Home() {
   const [messages, setMessages] = useState<MessageType[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageSound = useRef<HTMLAudioElement | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-
-    // Add user message to the chat
-    setMessages((prev) => [...prev, { sender: 'user', text: input }]);
-    setInput('');
-    setLoading(true);
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: input, userId: 'user-123' }), // Add a userId for session management
-      });
-
-      const data: ApiResponse = await response.json();
-
-      if (response.ok) {
-        // Add bot response to the chat
-        setMessages((prev) => [...prev, { sender: 'bot', text: (data as { message: string }).message }]);
-      } else {
-        // Handle API errors
-        const errorMessage = (data as { error: string }).error || 'Failed to get response, please try again.';
-        setMessages((prev) => [...prev, { sender: 'bot', text: errorMessage }]);
+  // Initialize audio on mount
+  useEffect(() => {
+    messageSound.current = new Audio('/message.mp3');
+    return () => {
+      if (messageSound.current) {
+        messageSound.current.pause();
+        messageSound.current = null;
       }
-    } catch (error) {
-      console.error('Error sending request:', error);
-      setMessages((prev) => [...prev, { sender: 'bot', text: 'Failed to get response, please try again.' }]);
-    } finally {
-      setLoading(false);
+    };
+  }, []);
+
+  // Scroll to bottom when messages change
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
+
+  // Play message sound
+  const playMessageSound = useCallback(() => {
+    if (messageSound.current) {
+      messageSound.current.currentTime = 0;
+      messageSound.current.play().catch(() => {});
     }
-  };
+  }, []);
+
+  // Handle form submission
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!input.trim()) return;
+
+      const userMessage: MessageType = {
+        sender: 'user',
+        text: input.trim(),
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, userMessage]);
+      setInput('');
+      setLoading(true);
+      playMessageSound();
+
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: input, userId: 'user-123' }),
+        });
+
+        const data: ApiResponse = await response.json();
+
+        if (response.ok) {
+          const botMessage: MessageType = {
+            sender: 'bot',
+            text: (data as { message: string }).message,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, botMessage]);
+          playMessageSound();
+        } else {
+          const errorMessage = (data as { error: string }).error || 'Failed to get response, please try again.';
+          Toast({
+            variant: "destructive",
+            title: "Error",
+            description: errorMessage
+          });
+        }
+      } catch (error) {
+        console.error('Error sending request:', error);
+        Toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to get response, please try again.",
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [input, playMessageSound]
+  );
+
+  // Memoize messages to avoid unnecessary re-renders
+  const messageList = useMemo(
+    () =>
+      messages.map((message, index) => (
+        <Message key={`${message.timestamp.getTime()}-${index}`} message={message} />
+      )),
+    [messages]
+  );
 
   return (
-    <main className="flex flex-col items-center justify-start min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-6">
-      <div className="w-full max-w-2xl bg-white rounded-xl shadow-xl overflow-hidden flex flex-col h-[80vh]">
-        {/* Chat Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-6">
-          <h1 className="text-2xl font-bold text-white">AI Chatbot</h1>
-          <p className="text-sm text-blue-100">Ask me anything!</p>
+    <main className="flex min-h-screen bg-gradient-to-br from-background to-muted p-4 sm:p-6">
+      <div className="w-full max-w-2xl mx-auto bg-card rounded-xl shadow-xl overflow-hidden flex flex-col">
+        <div className="bg-primary p-6">
+          <h1 className="text-2xl font-bold text-primary-foreground">AI Chatbot</h1>
+          <p className="text-sm text-primary-foreground/80">Ask me anything!</p>
         </div>
-
-        {/* Chat Messages */}
         <div className="flex-1 p-4 overflow-y-auto">
-          {messages.map((message, index) => (
-            <Message key={index} message={message} />
-          ))}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="max-w-[70%] p-3 bg-gray-100 text-gray-800 rounded-lg rounded-bl-none shadow-sm">
-                <p className="text-sm">Loading...</p>
-              </div>
-            </div>
-          )}
+          <AnimatePresence initial={false}>
+            {messageList}
+            {loading && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                transition={{ duration: 0.3 }}
+              >
+                <TypingIndicator />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <div ref={messagesEndRef} aria-hidden="true" />
         </div>
-
-        {/* Chat Input */}
-        <form onSubmit={handleSubmit} className="border-t border-gray-200 p-4 bg-gray-50">
+        <form onSubmit={handleSubmit} className="border-t p-4 bg-card">
           <div className="flex gap-2">
-            <input
+            <Input
               type="text"
-              className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
               placeholder="Type your message..."
               disabled={loading}
+              className="flex-1"
               aria-label="Type your message"
             />
-            <button
+            <Button
               type="submit"
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-400"
               disabled={loading}
-              aria-label="Send message"
+              size="icon"
+              aria-label={loading ? "Sending message" : "Send message"}
             >
-              Send
-            </button>
+              {loading ? (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                >
+                  ⟳
+                </motion.div>
+              ) : (
+                "Send"
+              )}
+            </Button>
           </div>
         </form>
       </div>
+      <Toaster /> {/* Render the Toaster component */}
     </main>
   );
 }
