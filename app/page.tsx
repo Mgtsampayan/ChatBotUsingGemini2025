@@ -5,7 +5,7 @@ import Message from './components/Message';
 import TypingIndicator from './components/TypingIndicator';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Toaster } from "@/components/ui/toaster"; // Import `toast` directly
+import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -15,28 +15,23 @@ type MessageType = {
   timestamp: Date;
 };
 
-type ApiResponse = {
-  message: string;
-  conversationId: string;
-  timestamp: string;
-} | {
-  error: string;
-  code?: string;
+type ApiResponse = 
+  | {
+      message: string;
+      conversationId: string;
+      timestamp: string;
+    }
+  | {
+      error: string;
+      code?: string;
+      timestamp: string;
+    };
+
+type StoredMessageType = Omit<MessageType, 'timestamp'> & {
   timestamp: string;
 };
 
-// Add a constant for user ID management
-const USER_ID = 'user-123'; // In a real app, this should come from authentication
-
-// Add debounce utility to prevent rapid-fire submissions
-const useDebounce = (callback: (...args: any[]) => void, delay: number) => {
-  const timeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
-  
-  return useCallback((...args: any[]) => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => callback(...args), delay);
-  }, [callback, delay]);
-};
+const USER_ID = 'user-123';
 
 export default function Home() {
   const [messages, setMessages] = useState<MessageType[]>([]);
@@ -46,18 +41,14 @@ export default function Home() {
   const messageSound = useRef<HTMLAudioElement | null>(null);
   const { toast } = useToast();
 
-  // Initialize audio on mount
   useEffect(() => {
     messageSound.current = new Audio('/message.mp3');
     return () => {
-      if (messageSound.current) {
-        messageSound.current.pause();
-        messageSound.current = null;
-      }
+      messageSound.current?.pause();
+      messageSound.current = null;
     };
   }, []);
 
-  // Scroll to bottom when messages change
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
@@ -66,22 +57,22 @@ export default function Home() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  // Play message sound
   const playMessageSound = useCallback(() => {
-    if (messageSound.current) {
-      messageSound.current.currentTime = 0;
-      messageSound.current.play().catch(() => {});
-    }
+    messageSound.current?.play().catch(() => {});
   }, []);
 
-  // Add message history persistence
   useEffect(() => {
     const savedMessages = localStorage.getItem('chatHistory');
     if (savedMessages) {
-      setMessages(JSON.parse(savedMessages).map((msg: any) => ({
-        ...msg,
-        timestamp: new Date(msg.timestamp)
-      })));
+      try {
+        const parsedMessages: StoredMessageType[] = JSON.parse(savedMessages);
+        setMessages(parsedMessages.map(msg => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        })));
+      } catch (error) {
+        console.error('Error loading chat history:', error);
+      }
     }
   }, []);
 
@@ -89,7 +80,6 @@ export default function Home() {
     localStorage.setItem('chatHistory', JSON.stringify(messages));
   }, [messages]);
 
-  // Enhanced submit handler with error retry
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -118,8 +108,7 @@ export default function Home() {
           const data: ApiResponse = await response.json();
 
           if (!response.ok) {
-            const errorData = data as { error: string };
-            throw new Error(errorData.error || 'Server error');
+            throw new Error('error' in data ? data.error : 'Server error');
           }
 
           if ('message' in data) {
@@ -142,7 +131,7 @@ export default function Home() {
             });
           }
           retries--;
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
       setLoading(false);
@@ -150,18 +139,18 @@ export default function Home() {
     [input, loading, playMessageSound, toast]
   );
 
-  // Add clear chat functionality
   const clearChat = useCallback(() => {
     setMessages([]);
     localStorage.removeItem('chatHistory');
   }, []);
 
-  // Memoize messages to avoid unnecessary re-renders
   const messageList = useMemo(
-    () =>
-      messages.map((message, index) => (
-        <Message key={`${message.timestamp.getTime()}-${index}`} message={message} />
-      )),
+    () => messages.map((message, index) => (
+      <Message 
+        key={`${message.timestamp.getTime()}-${index}`} 
+        message={message} 
+      />
+    )),
     [messages]
   );
 
@@ -229,7 +218,7 @@ export default function Home() {
           </div>
         </form>
       </div>
-      <Toaster /> {/* Render the Toaster component */}
+      <Toaster />
     </main>
   );
 }
