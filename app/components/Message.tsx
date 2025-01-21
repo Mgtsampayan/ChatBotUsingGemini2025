@@ -3,17 +3,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { motion } from "framer-motion";
 import { useMemo } from "react";
 
-// Enhanced type definition with required timestamp
 interface MessageProps {
     message: { 
         sender: 'user' | 'bot'; 
         text: string;
         timestamp: Date;
     };
-    onRetry?: () => void;
 }
 
-// Improved animation variants with smoother transitions
 const messageAnimationVariants = {
     initial: { opacity: 0, y: 20, scale: 0.95 },
     animate: { 
@@ -30,10 +27,9 @@ const messageAnimationVariants = {
     }
 };
 
-const Message = ({ message, onRetry }: MessageProps) => {
+const Message = ({ message }: MessageProps) => {
     const isUser = message.sender === 'user';
     
-    // Enhanced timestamp formatting with more detailed error handling
     const formattedTime = useMemo(() => {
         try {
             if (!(message.timestamp instanceof Date)) {
@@ -42,7 +38,7 @@ const Message = ({ message, onRetry }: MessageProps) => {
             return message.timestamp.toLocaleTimeString([], { 
                 hour: '2-digit', 
                 minute: '2-digit',
-                hour12: true // 12-hour format with AM/PM
+                hour12: true
             });
         } catch (error) {
             console.error('Error formatting timestamp:', error);
@@ -56,7 +52,7 @@ const Message = ({ message, onRetry }: MessageProps) => {
             initial="initial"
             animate="animate"
             exit="exit"
-            layout // Smooth layout transitions
+            layout
             className={cn(
                 "flex items-end gap-2 mb-4",
                 isUser ? "flex-row-reverse" : "flex-row"
