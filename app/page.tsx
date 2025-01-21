@@ -119,8 +119,8 @@ export default function Home() {
     <main className="flex min-h-screen bg-gradient-to-br from-background to-muted p-4 sm:p-6">
       <div className="w-full max-w-2xl mx-auto bg-card rounded-xl shadow-xl overflow-hidden flex flex-col">
         <div className="bg-primary p-6">
-          <h1 className="text-2xl font-bold text-primary-foreground">AI Chatbot</h1>
-          <p className="text-sm text-primary-foreground/80">Ask me anything!</p>
+          <h1 className="text-2xl font-bold text-primary-foreground">AI Chatbot for 2025</h1>
+          <p className="text-sm text-primary-foreground/80">Develop by: Gemuel Sampayan</p>
         </div>
         <div className="flex-1 p-4 overflow-y-auto">
           <AnimatePresence initial={false}>
