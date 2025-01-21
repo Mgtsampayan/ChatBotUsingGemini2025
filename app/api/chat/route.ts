@@ -1,14 +1,19 @@
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI, ChatSession, GenerateContentResult } from "@google/generative-ai";
+import { GoogleGenerativeAI, ChatSession } from "@google/generative-ai";
 
 // Initialize the Generative AI model
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY as string);
 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
-// Object to store chat sessions for each user (in-memory storage for demonstration purposes)
+// Session management
 const userSessions: { [userId: string]: ChatSession } = {};
+const sessionLastAccessed: { [userId: string]: number } = {};
 
-// Enhanced interface definitions
+// Constants
+const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+const REQUEST_TIMEOUT = 30000; // 30 seconds
+
+// Interface definitions
 interface ChatResponse {
     message: string;
     conversationId: string;
@@ -21,57 +26,123 @@ interface ErrorResponse {
     timestamp: string;
 }
 
-// Add session cleanup utility
-const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+class TimeoutError extends Error {
+    constructor() {
+        super("Request timed out");
+        this.name = "TimeoutError";
+    }
+}
+
+class InvalidAPIResponseError extends Error {
+    constructor(message: string = "Invalid API response") {
+        super(message);
+        this.name = "InvalidAPIResponseError";
+    }
+}
+
+// Session cleanup utility
 const cleanupSessions = () => {
     const now = Date.now();
-    Object.entries(userSessions).forEach(([userId, session]) => {
-        if ((session as any).lastAccessed && now - (session as any).lastAccessed > SESSION_TIMEOUT) {
+    Object.keys(sessionLastAccessed).forEach(userId => {
+        if (now - sessionLastAccessed[userId] > SESSION_TIMEOUT) {
             delete userSessions[userId];
+            delete sessionLastAccessed[userId];
         }
     });
 };
 
-export async function POST(req: Request): Promise<NextResponse<ErrorResponse | ChatResponse>> {
+export async function POST(req: Request): Promise<NextResponse<ChatResponse | ErrorResponse>> {
     try {
-        // Periodic cleanup of inactive sessions
+        // Clean up old sessions
         cleanupSessions();
-        
-        const body = await req.json();
 
-        // Enhanced input validation
-        if (!body?.message?.trim() || !body?.userId?.trim()) {
+        // Validate request content type
+        const contentType = req.headers.get("content-type");
+        if (!contentType?.includes("application/json")) {
             return NextResponse.json({
-                error: "Missing or invalid request body. Must include non-empty 'message' and 'userId' fields.",
-                code: 'INVALID_INPUT',
+                error: "Invalid content type. Expected application/json",
+                code: "INVALID_CONTENT_TYPE",
+                timestamp: new Date().toISOString()
+            }, { status: 415 });
+        }
+
+        // Parse and validate request body
+        let body;
+        try {
+            body = await req.json();
+        } catch (error) {
+            console.error("JSON parsing error:", error);
+            return NextResponse.json({
+                error: "Invalid JSON format in request body",
+                code: "INVALID_JSON",
                 timestamp: new Date().toISOString()
             }, { status: 400 });
         }
 
-        const message = String(body.message).trim();
-        const userId = String(body.userId).trim();
+        // Validate request body structure
+        if (!body || typeof body !== "object") {
+            return NextResponse.json({
+                error: "Invalid request format",
+                code: "INVALID_REQUEST",
+                timestamp: new Date().toISOString()
+            }, { status: 400 });
+        }
 
-        // Retrieve or create a chat session for the user
+        // Validate input types
+        if (typeof body.message !== "string" || typeof body.userId !== "string") {
+            return NextResponse.json({
+                error: "Invalid input types. 'message' and 'userId' must be strings.",
+                code: "INVALID_INPUT_TYPE",
+                timestamp: new Date().toISOString()
+            }, { status: 400 });
+        }
+
+        const message = body.message.trim();
+        const userId = body.userId.trim();
+
+        // Validate non-empty inputs
+        if (!message || !userId) {
+            return NextResponse.json({
+                error: "Empty input fields. 'message' and 'userId' must not be empty.",
+                code: "EMPTY_INPUT",
+                timestamp: new Date().toISOString()
+            }, { status: 400 });
+        }
+
+        // Manage chat session
         let chat = userSessions[userId];
         if (!chat) {
-            chat = model.startChat();
+            chat = model.startChat({
+                history: [],
+                generationConfig: { maxOutputTokens: 1000 }
+            });
             userSessions[userId] = chat;
         }
-        
-        // Update session last accessed time
-        (chat as any).lastAccessed = Date.now();
+        sessionLastAccessed[userId] = Date.now();
 
-        // Send the user's message to the model with timeout
+        // Process request with timeout
         const result = await Promise.race([
             chat.sendMessage(message),
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Request timeout')), 30000)
+            new Promise<never>((_, reject) => 
+                setTimeout(() => reject(new TimeoutError()), REQUEST_TIMEOUT)
             )
-        ]) as GenerateContentResult;
+        ]);
+
+        // Validate API response structure
+        if (typeof result !== "object" || 
+            !result?.response || 
+            typeof result.response.text !== "function") {
+            throw new InvalidAPIResponseError("Unexpected response structure from API");
+        }
 
         const aiMessage = result.response.text();
 
-        // Return enhanced response
+        // Validate response content
+        if (!aiMessage || typeof aiMessage !== "string") {
+            throw new InvalidAPIResponseError("Empty or invalid response content");
+        }
+
+        // Return successful response
         return NextResponse.json({
             message: aiMessage,
             conversationId: userId,
@@ -83,21 +154,40 @@ export async function POST(req: Request): Promise<NextResponse<ErrorResponse | C
 
         const errorResponse: ErrorResponse = {
             error: "An unexpected error occurred.",
-            code: 'INTERNAL_ERROR',
+            code: "INTERNAL_ERROR",
             timestamp: new Date().toISOString()
         };
 
         let statusCode = 500;
 
-        if (error instanceof Error) {
-            if (error.message.includes("429")) {
-                errorResponse.error = "Too many requests. Please wait a while before trying again.";
-                errorResponse.code = 'RATE_LIMIT_EXCEEDED';
-                statusCode = 429;
-            } else if (error.message === 'Request timeout') {
-                errorResponse.error = "Request timed out. Please try again.";
-                errorResponse.code = 'TIMEOUT';
-                statusCode = 408;
+        if (error instanceof TimeoutError) {
+            errorResponse.error = "Request timed out. Please try again.";
+            errorResponse.code = "TIMEOUT";
+            statusCode = 408;
+        } else if (error instanceof InvalidAPIResponseError) {
+            errorResponse.error = error.message;
+            errorResponse.code = "INVALID_API_RESPONSE";
+            statusCode = 502;
+        } else if (error instanceof Error) {
+            if ("code" in error) {
+                switch (error.code) {
+                    case "429":
+                        errorResponse.error = "Too many requests. Please wait before trying again.";
+                        errorResponse.code = "RATE_LIMIT_EXCEEDED";
+                        statusCode = 429;
+                        break;
+                    case "500":
+                        errorResponse.error = "Internal server error. Please try again later.";
+                        errorResponse.code = "SERVER_ERROR";
+                        statusCode = 502;
+                        break;
+                }
+            }
+            
+            if (error.name === "ResponseError") {
+                errorResponse.error = "API response error. Please check your request.";
+                errorResponse.code = "API_ERROR";
+                statusCode = 502;
             }
         }
 
