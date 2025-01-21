@@ -87,7 +87,7 @@ export default function Home() {
           setMessages((prev) => [...prev, botMessage]);
           playMessageSound();
         } else {
-          const errorMessage = (data as { error: string }).error || 'Failed to get response, please try again.';
+          // const errorMessage = (data as { error: string }).error || 'Failed to get response, please try again.';
           Toast({
             variant: "destructive",
             title: "Error"
