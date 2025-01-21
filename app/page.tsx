@@ -90,16 +90,14 @@ export default function Home() {
           const errorMessage = (data as { error: string }).error || 'Failed to get response, please try again.';
           Toast({
             variant: "destructive",
-            title: "Error",
-            description: errorMessage
+            title: "Error"
           });
         }
       } catch (error) {
         console.error('Error sending request:', error);
         Toast({
           variant: "destructive",
-          title: "Error",
-          description: "Failed to get response, please try again.",
+          title: "Failed to get response, please try again.",
         });
       } finally {
         setLoading(false);
