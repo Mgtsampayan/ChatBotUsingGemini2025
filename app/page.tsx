@@ -15,17 +15,17 @@ type MessageType = {
   timestamp: Date;
 };
 
-type ApiResponse = 
+type ApiResponse =
   | {
-      message: string;
-      conversationId: string;
-      timestamp: string;
-    }
+    message: string;
+    conversationId: string;
+    timestamp: string;
+  }
   | {
-      error: string;
-      code?: string;
-      timestamp: string;
-    };
+    error: string;
+    code?: string;
+    timestamp: string;
+  };
 
 type StoredMessageType = Omit<MessageType, 'timestamp'> & {
   timestamp: string;
@@ -58,7 +58,7 @@ export default function Home() {
   }, [messages, scrollToBottom]);
 
   const playMessageSound = useCallback(() => {
-    messageSound.current?.play().catch(() => {});
+    messageSound.current?.play().catch(() => { });
   }, []);
 
   useEffect(() => {
@@ -146,9 +146,9 @@ export default function Home() {
 
   const messageList = useMemo(
     () => messages.map((message, index) => (
-      <Message 
-        key={`${message.timestamp.getTime()}-${index}`} 
-        message={message} 
+      <Message
+        key={`${message.timestamp.getTime()}-${index}`}
+        message={message}
       />
     )),
     [messages]
